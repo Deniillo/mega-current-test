@@ -1,15 +1,14 @@
-import logging
-import hmac
 import hashlib
-import asyncio
+import hmac
+import logging
 from typing import List
 
 from fastapi import APIRouter, Request, Header, HTTPException
 
-from main.git.github_client import GitHubAppClient
-from main.config import WEBHOOK_SECRET
 from main.agents.coder_agent import run_coder_agent
 from main.agents.reviewer_agent import run_reviewer_agent
+from main.config import WEBHOOK_SECRET
+from main.git.github_client import GitHubAppClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -136,35 +135,6 @@ async def github_webhook(
         )
 
         return {"status": "coder agent completed"}
-
-    # --- Reviewer Agent: обработка новых PR ---
-    elif x_github_event == "pull_request" and payload.get("action") == "opened":
-        pr_number = payload["pull_request"]["number"]
-
-        # Подождем 5 секунд, чтобы CI успел стартануть
-        await asyncio.sleep(15)
-
-        ci_status = await get_ci_status(client, repo_full_name, pr_number)
-
-        if ci_status == "no_ci":
-            # CI тестов нет → сразу запускаем reviewer agent с пометкой
-            diff_text = await get_pr_diff(client, repo_full_name, pr_number)
-            pr_title = payload["pull_request"]["title"]
-            pr_body = payload["pull_request"].get("body", "")
-            context = (
-                f"PR: {pr_title}\n"
-                f"Описание: {pr_body}\n"
-                f"Diff:\n{diff_text}\n"
-                f"⚠️ CI тестов не было для этого PR."
-            )
-            review_comment = await run_reviewer_agent(context)
-            client.add_pr_comment(repo_full_name, pr_number, review_comment)
-            return {"status": "reviewer agent completed (no CI)"}
-        else:
-            # CI тесты запущены → добавляем комментарий и ждём события завершения
-            client.add_pr_comment(repo_full_name, pr_number,
-                                  "⚡ CI тесты запущены, reviewer agent ответит после завершения проверки")
-            return {"status": "waiting for CI"}
 
     # --- CI завершился: запускаем reviewer agent ---
     elif x_github_event == "check_run" and payload.get("action") == "completed":
