@@ -305,3 +305,14 @@ class GitHubAppClient:
             )
             raise
 
+    def get_pr_number_from_url(self, pr_url: str) -> int:
+        """
+        Получает номер PR из полного API URL.
+        Пример URL: https://api.github.com/repos/owner/repo/pulls/12
+        """
+        try:
+            pr_number = int(pr_url.rstrip("/").split("/")[-1])
+            return pr_number
+        except Exception:
+            logger.exception("Failed to parse PR number from URL: %s", pr_url)
+            raise
