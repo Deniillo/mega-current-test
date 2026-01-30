@@ -115,6 +115,8 @@ async def github_webhook(
                 "Содержимое файлов репозитория:\n" + "\n\n".join(files_context)
         )
 
+        logger.info(context)
+
         files_to_update = await run_coder_agent(context, allowed_files=repo_files)
         logger.info("Files to update: %s", list(files_to_update.keys()))
 
