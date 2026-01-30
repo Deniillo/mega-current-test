@@ -76,6 +76,9 @@ async def github_webhook(
         logger.info("Coder Agent response: %s", agent_response)
 
         branch_name = f"issue-{issue_number}-fix"
+
+        client.create_branch(repo_full_name, branch_name)
+
         client.create_or_update_file(
             repo_full_name,
             branch_name,

@@ -279,4 +279,33 @@ class GitHubAppClient:
             logger.exception("Failed to list files repo=%s", repo_full_name)
             raise
 
+    def create_branch(self, repo_full_name: str, branch_name: str, base_branch: str = "main"):
+        """
+        Создает новую ветку branch_name от base_branch.
+        """
+        logger.info(
+            "Creating branch repo=%s branch_name=%s base_branch=%s",
+            repo_full_name,
+            branch_name,
+            base_branch,
+        )
+
+        try:
+            repo = self.get_repo(repo_full_name)
+            # Получаем объект base ветки
+            base_ref = repo.get_branch(base_branch)
+            # Создаем новую ветку с тем же SHA, что у base
+            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base_ref.commit.sha)
+            logger.info(
+                "Branch created successfully branch_name=%s from base_branch=%s",
+                branch_name,
+                base_branch,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create branch repo=%s branch_name=%s",
+                repo_full_name,
+                branch_name,
+            )
+            raise
 
