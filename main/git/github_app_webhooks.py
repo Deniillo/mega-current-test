@@ -145,7 +145,12 @@ async def github_webhook(
         ci_status = await get_ci_status(client, repo_full_name, pr_number)
 
         if ci_status == "no_ci":
-            client.add_pr_comment(repo_full_name, pr_number, "⚠️ CI тестов не было для этого PR.")
+            ci_status_text = "⚠️ CI тестов не было для этого PR. Либо их не существует"
+            client.add_pr_comment(repo_full_name, pr_number, ci_status_text)
+            context = f"PR: {pr_title}\nОписание: {pr_body}\nDiff:\n{diff_text}\nCI: {ci_status_text}"
+            logger.info(context)
+            review_comment = await run_reviewer_agent(context)
+            client.add_pr_comment(repo_full_name, pr_number, review_comment)
         else:
             context = f"PR: {pr_title}\nОписание: {pr_body}\nDiff:\n{diff_text}\nCI: {ci_status}"
             review_comment = await run_reviewer_agent(context)
