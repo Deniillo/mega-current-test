@@ -25,6 +25,10 @@ async def github_webhook(
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     payload = await request.json()
+
+    if x_github_event == "ping":
+        return {"status": "pong"}
+
     installation_id = payload["installation"]["id"]
     repo_full_name = payload["repository"]["full_name"]
 
@@ -32,12 +36,20 @@ async def github_webhook(
 
     if x_github_event == "issues":
         issue_number = payload["issue"]["number"]
-        client.get_issue(repo_full_name, issue_number).create_comment(":robot: issue увидел")
+        client.get_issue(repo_full_name, issue_number).create_comment(
+            ":robot: issue увидел"
+        )
+
     elif x_github_event == "pull_request":
         pr_number = payload["pull_request"]["number"]
-        client.add_pr_comment(repo_full_name, pr_number, ":robot: pr увидел")
+        client.add_pr_comment(
+            repo_full_name,
+            pr_number,
+            ":robot: pr увидел"
+        )
 
     return {"status": "ok"}
+
 
 # Ручка для теста комментария на issue
 @router.post("/test_issue/")
