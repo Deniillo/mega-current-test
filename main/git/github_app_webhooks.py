@@ -142,7 +142,7 @@ async def github_webhook(
         pr_number = payload["pull_request"]["number"]
 
         # Подождем 5 секунд, чтобы CI успел стартануть
-        await asyncio.sleep(5)
+        await asyncio.sleep(15)
 
         ci_status = await get_ci_status(client, repo_full_name, pr_number)
 
@@ -167,17 +167,19 @@ async def github_webhook(
             return {"status": "waiting for CI"}
 
     # --- CI завершился: запускаем reviewer agent ---
-    elif x_github_event in ("check_run", "check_suite") and payload.get("action") == "completed":
-        # Получаем PR, к которому относится CI
-        prs = payload.get("check_run", {}).get("pull_requests", []) or payload.get("check_suite", {}).get("pull_requests", [])
+    elif x_github_event == "check_run" and payload.get("action") == "completed":
+        prs = payload["check_run"].get("pull_requests", [])
         if not prs:
-            return {"status": "no PR associated with CI"}
+            return {"status": "check_run without PR"}
 
         pr_number = prs[0]["number"]
+
+        pr = client.get_pull_request(repo_full_name, pr_number)
+        pr_title = pr.title
+        pr_body = pr.body or ""
+
         diff_text = await get_pr_diff(client, repo_full_name, pr_number)
-        pr_title = prs[0]["title"]
-        pr_body = prs[0].get("body", "")
-        conclusion = payload.get("check_run", {}).get("conclusion") or payload.get("check_suite", {}).get("conclusion")
+        conclusion = payload["check_run"]["conclusion"]
 
         context = (
             f"PR: {pr_title}\n"
@@ -185,9 +187,11 @@ async def github_webhook(
             f"Diff:\n{diff_text}\n"
             f"CI статус: {conclusion}"
         )
+
         review_comment = await run_reviewer_agent(context)
         client.add_pr_comment(repo_full_name, pr_number, review_comment)
-        return {"status": "reviewer agent completed (CI finished)"}
+
+        return {"status": "reviewer agent completed"}
 
     logger.info("Unhandled event type: %s", x_github_event)
     return {"status": "ok"}
