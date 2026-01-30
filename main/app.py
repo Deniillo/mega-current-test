@@ -1,6 +1,6 @@
 # app_fastapi.py
 import uvicorn
-from app.git.github_app_webhooks import app
+from main.git.github_app_webhooks import app
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)

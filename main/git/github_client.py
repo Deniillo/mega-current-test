@@ -3,7 +3,7 @@ import time
 import requests
 from github import Github
 
-from app.config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH
+from main.config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH
 
 class GitHubAppClient:
     def __init__(self, installation_id: int):

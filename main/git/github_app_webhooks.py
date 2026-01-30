@@ -2,9 +2,9 @@ from fastapi import FastAPI, Header, HTTPException, Request
 import hmac
 import hashlib
 
-from app.git.github_client import GitHubAppClient
+from main.git.github_client import GitHubAppClient
 
-from app.config import WEBHOOK_SECRET
+from main.config import WEBHOOK_SECRET
 
 app = FastAPI(title="GitHub App Client API")
 
