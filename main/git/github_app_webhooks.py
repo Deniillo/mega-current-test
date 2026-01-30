@@ -49,16 +49,16 @@ async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number:
 
     latest_commit = commits[-1]
 
-    try:
-        combined_status = latest_commit.get_combined_status()
-    except AttributeError:
+    # Получаем статус коммита
+    statuses = latest_commit.get_statuses()
+    if statuses.totalCount == 0:
         return "no_ci"
 
-    if combined_status.total_count == 0:
-        return "no_ci"
-    if any(s.state == "failure" for s in combined_status.statuses):
+    states = [s.state for s in statuses]  # список "success", "failure", "pending"
+
+    if "failure" in states:
         return "failure"
-    if all(s.state == "success" for s in combined_status.statuses):
+    if all(s == "success" for s in states):
         return "success"
     return "pending"
 
