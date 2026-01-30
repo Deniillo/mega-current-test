@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+from collections import defaultdict
 from typing import List
 
 from fastapi import APIRouter, Request, Header, HTTPException
@@ -13,11 +14,20 @@ from main.git.github_client import GitHubAppClient
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ----------------- STATE -----------------
+PR_ITERATIONS = defaultdict(int)
+MAX_ITERATIONS = 5
 
+# ----------------- UTILS -----------------
 def verify_signature(payload: bytes, signature: str) -> bool:
     """Проверка подписи GitHub webhook"""
     mac = hmac.new(WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
     return hmac.compare_digest(f"sha256={mac.hexdigest()}", signature)
+
+
+def is_reviewer_comment(comment_body: str) -> bool:
+    """Определяет, что комментарий оставил reviewer agent"""
+    return "Вердикт:" in comment_body or comment_body.startswith("[REVIEWER]")
 
 
 async def get_issue_comments(client: GitHubAppClient, repo_full_name: str, issue_number: int) -> List[str]:
@@ -39,17 +49,14 @@ async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number:
     """Получение текущего состояния CI для PR"""
     pr = client.get_pull_request(repo_full_name, pr_number)
     commits = pr.get_commits()
-
     latest_commit = None
     for commit in commits:
         latest_commit = commit
     if latest_commit is None:
         return "no_ci"
-
     statuses = latest_commit.get_statuses()
     if statuses.totalCount == 0:
         return "no_ci"
-
     states = [s.state for s in statuses]
     if "failure" in states:
         return "failure"
@@ -57,7 +64,7 @@ async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number:
         return "success"
     return "pending"
 
-
+# ----------------- WEBHOOK -----------------
 @router.post("/webhook")
 async def github_webhook(
     request: Request,
@@ -83,7 +90,7 @@ async def github_webhook(
 
     client = GitHubAppClient(installation_id)
 
-    # --- Coder Agent: обработка новых issue ---
+    # ----------------- Coder Agent: открытие issue -----------------
     if x_github_event == "issues" and payload.get("action") == "opened":
         issue_number = payload["issue"]["number"]
         issue_title = payload["issue"]["title"]
@@ -91,14 +98,12 @@ async def github_webhook(
         comments = await get_issue_comments(client, repo_full_name, issue_number)
 
         repo_files = client.list_files(repo_full_name)
-
         allowed_files = []
         files_context = []
+
         for path in repo_files:
-            logger.info("обрабатываю файл %s", path)
             content = client.get_file_content(repo_full_name, path, ref="main")
             if content is not None:
-                logger.info("добавил файл %s", path)
                 allowed_files.append(path)
                 files_context.append(f"=== {path} ===\n{content}")
 
@@ -109,10 +114,7 @@ async def github_webhook(
             "Содержимое файлов репозитория:\n" + "\n\n".join(files_context)
         )
 
-        logger.info(context)
-
         files_to_update = await run_coder_agent(context, allowed_files=repo_files)
-        logger.info("Files to update: %s", list(files_to_update.keys()))
 
         branch_name = f"issue-{issue_number}-fix"
         client.create_branch(repo_full_name, branch_name)
@@ -126,7 +128,7 @@ async def github_webhook(
                 f"Issue #{issue_number} fix via Coder Agent"
             )
 
-        client.create_pull_request(
+        pr = client.create_pull_request(
             repo_full_name,
             f"Fix for issue #{issue_number}",
             branch_name,
@@ -134,20 +136,21 @@ async def github_webhook(
             body=f"Issue #{issue_number} fix via Coder Agent"
         )
 
+        # Инициализируем итерацию
+        PR_ITERATIONS[pr.number] = 1
+
         return {"status": "coder agent completed"}
 
-    # --- CI завершился: запускаем reviewer agent ---
+    # ----------------- Reviewer Agent: CI завершился -----------------
     elif x_github_event == "check_run" and payload.get("action") == "completed":
         prs = payload["check_run"].get("pull_requests", [])
         if not prs:
             return {"status": "check_run without PR"}
 
         pr_number = prs[0]["number"]
-
         pr = client.get_pull_request(repo_full_name, pr_number)
         pr_title = pr.title
         pr_body = pr.body or ""
-
         diff_text = await get_pr_diff(client, repo_full_name, pr_number)
         conclusion = payload["check_run"]["conclusion"]
 
@@ -162,6 +165,62 @@ async def github_webhook(
         client.add_pr_comment(repo_full_name, pr_number, review_comment)
 
         return {"status": "reviewer agent completed"}
+
+    # ----------------- Coder Agent: реагирование на комментарий ревьювера -----------------
+    elif x_github_event == "issue_comment" and payload.get("action") == "created":
+        comment = payload["comment"]["body"]
+
+        if not is_reviewer_comment(comment):
+            return {"status": "not reviewer comment"}
+
+        pr_url = payload["issue"]["pull_request"]["url"]
+        pr_number = client.get_pr_number_from_url(pr_url)  # метод для получения PR номера
+
+        # Проверка лимита итераций
+        PR_ITERATIONS[pr_number] += 1
+        if PR_ITERATIONS[pr_number] > MAX_ITERATIONS:
+            client.add_pr_comment(
+                repo_full_name,
+                pr_number,
+                "[SYSTEM] Max iterations reached. Manual intervention required."
+            )
+            return {"status": "max iterations reached"}
+
+        # Разбираем вердикт reviewer
+        verdict = "request changes" if "request changes" in comment.lower() else "approve"
+        if verdict == "approve":
+            return {"status": "review approved"}
+
+        # Подготовка контекста для coder
+        pr = client.get_pull_request(repo_full_name, pr_number)
+        pr_title = pr.title
+        pr_body = pr.body or ""
+        diff_text = await get_pr_diff(client, repo_full_name, pr_number)
+
+        context = (
+            f"PR: {pr_title}\n"
+            f"Описание: {pr_body}\n"
+            f"Текущий diff:\n{diff_text}\n\n"
+            f"Комментарий ревьювера:\n{comment}\n\n"
+            f"Итерация: {PR_ITERATIONS[pr_number]} из {MAX_ITERATIONS}"
+        )
+
+        pr_files = pr.get_files()
+        allowed_files = [f.filename for f in pr_files]
+
+        files_to_update = await run_coder_agent(context, allowed_files=allowed_files)
+        branch_name = pr.head.ref
+
+        for path, content in files_to_update.items():
+            client.create_or_update_file(
+                repo_full_name,
+                branch_name,
+                path,
+                content,
+                f"Fix after review iteration {PR_ITERATIONS[pr_number]}"
+            )
+
+        return {"status": "coder iteration completed"}
 
     logger.info("Unhandled event type: %s", x_github_event)
     return {"status": "ok"}
