@@ -99,12 +99,14 @@ async def github_webhook(
         allowed_files = []
         files_context = []
         for path in repo_files:
+            logger.info("обрабатываю файл %s", path)
             content = client.get_file_content(repo_full_name, path, ref="main")
             if content is not None:
+                logger.info("добавил файл %s", path)
                 allowed_files.append(path)
                 files_context.append(f"=== {path} ===\n{content}")
-            else:
-                logger.info("не сумел обработать файл %s", path)
+            # else:
+            #     logger.info("не сумел обработать файл %s", path)
 
         context = (
                 f"Issue: {issue_title}\n"
