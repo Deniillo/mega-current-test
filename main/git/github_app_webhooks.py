@@ -1,7 +1,10 @@
 import logging
-from fastapi import APIRouter, Request, Header, HTTPException
-import hmac, hashlib
+import hmac
+import hashlib
+import asyncio
 from typing import List
+
+from fastapi import APIRouter, Request, Header, HTTPException
 
 from main.git.github_client import GitHubAppClient
 from main.config import WEBHOOK_SECRET
@@ -34,6 +37,7 @@ async def get_pr_diff(client: GitHubAppClient, repo_full_name: str, pr_number: i
 
 
 async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number: int) -> str:
+    """Получение текущего состояния CI для PR"""
     pr = client.get_pull_request(repo_full_name, pr_number)
     commits = pr.get_commits()
 
@@ -55,7 +59,6 @@ async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number:
     return "pending"
 
 
-
 @router.post("/webhook")
 async def github_webhook(
     request: Request,
@@ -68,6 +71,7 @@ async def github_webhook(
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     payload = await request.json()
+
     if x_github_event == "ping":
         return {"status": "pong"}
 
@@ -98,14 +102,12 @@ async def github_webhook(
                 logger.info("добавил файл %s", path)
                 allowed_files.append(path)
                 files_context.append(f"=== {path} ===\n{content}")
-            # else:
-            #     logger.info("не сумел обработать файл %s", path)
 
         context = (
-                f"Issue: {issue_title}\n"
-                f"Описание: {issue_body}\n"
-                f"Комментарии:\n" + "\n".join(comments) + "\n\n" +
-                "Содержимое файлов репозитория:\n" + "\n\n".join(files_context)
+            f"Issue: {issue_title}\n"
+            f"Описание: {issue_body}\n"
+            f"Комментарии:\n" + "\n".join(comments) + "\n\n" +
+            "Содержимое файлов репозитория:\n" + "\n\n".join(files_context)
         )
 
         logger.info(context)
@@ -138,25 +140,54 @@ async def github_webhook(
     # --- Reviewer Agent: обработка новых PR ---
     elif x_github_event == "pull_request" and payload.get("action") == "opened":
         pr_number = payload["pull_request"]["number"]
-        pr_title = payload["pull_request"]["title"]
-        pr_body = payload["pull_request"].get("body", "")
 
-        diff_text = await get_pr_diff(client, repo_full_name, pr_number)
+        # Подождем 5 секунд, чтобы CI успел стартануть
+        await asyncio.sleep(5)
+
         ci_status = await get_ci_status(client, repo_full_name, pr_number)
 
         if ci_status == "no_ci":
-            ci_status_text = "⚠️ CI тестов не было для этого PR. Либо их не существует"
-            client.add_pr_comment(repo_full_name, pr_number, ci_status_text)
-            context = f"PR: {pr_title}\nОписание: {pr_body}\nDiff:\n{diff_text}\nCI: {ci_status_text}"
-            logger.info(context)
+            # CI тестов нет → сразу запускаем reviewer agent с пометкой
+            diff_text = await get_pr_diff(client, repo_full_name, pr_number)
+            pr_title = payload["pull_request"]["title"]
+            pr_body = payload["pull_request"].get("body", "")
+            context = (
+                f"PR: {pr_title}\n"
+                f"Описание: {pr_body}\n"
+                f"Diff:\n{diff_text}\n"
+                f"⚠️ CI тестов не было для этого PR."
+            )
             review_comment = await run_reviewer_agent(context)
             client.add_pr_comment(repo_full_name, pr_number, review_comment)
+            return {"status": "reviewer agent completed (no CI)"}
         else:
-            context = f"PR: {pr_title}\nОписание: {pr_body}\nDiff:\n{diff_text}\nCI: {ci_status}"
-            review_comment = await run_reviewer_agent(context)
-            client.add_pr_comment(repo_full_name, pr_number, review_comment)
+            # CI тесты запущены → добавляем комментарий и ждём события завершения
+            client.add_pr_comment(repo_full_name, pr_number,
+                                  "⚡ CI тесты запущены, reviewer agent ответит после завершения проверки")
+            return {"status": "waiting for CI"}
 
-        return {"status": "reviewer agent completed"}
+    # --- CI завершился: запускаем reviewer agent ---
+    elif x_github_event in ("check_run", "check_suite") and payload.get("action") == "completed":
+        # Получаем PR, к которому относится CI
+        prs = payload.get("check_run", {}).get("pull_requests", []) or payload.get("check_suite", {}).get("pull_requests", [])
+        if not prs:
+            return {"status": "no PR associated with CI"}
+
+        pr_number = prs[0]["number"]
+        diff_text = await get_pr_diff(client, repo_full_name, pr_number)
+        pr_title = prs[0]["title"]
+        pr_body = prs[0].get("body", "")
+        conclusion = payload.get("check_run", {}).get("conclusion") or payload.get("check_suite", {}).get("conclusion")
+
+        context = (
+            f"PR: {pr_title}\n"
+            f"Описание: {pr_body}\n"
+            f"Diff:\n{diff_text}\n"
+            f"CI статус: {conclusion}"
+        )
+        review_comment = await run_reviewer_agent(context)
+        client.add_pr_comment(repo_full_name, pr_number, review_comment)
+        return {"status": "reviewer agent completed (CI finished)"}
 
     logger.info("Unhandled event type: %s", x_github_event)
     return {"status": "ok"}
