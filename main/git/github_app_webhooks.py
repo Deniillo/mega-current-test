@@ -94,8 +94,27 @@ async def github_webhook(
         issue_body = payload["issue"].get("body", "")
         comments = await get_issue_comments(client, repo_full_name, issue_number)
 
-        # Получаем словарь {файл: новый код}
-        files_to_update = await run_coder_agent(issue_title, issue_body, comments)
+        repo_files = client.list_files(repo_full_name)
+
+        allowed_files = []
+        files_context = []
+        for path in repo_files:
+            try:
+                content = client.get_file_content(repo_full_name, path, ref="main")
+                allowed_files.append(path)
+                files_context.append(f"=== {path} ===\n{content}")
+            except Exception:
+                logger.info("не сумел обработать файл ", path)
+                continue
+
+        context = (
+                f"Issue: {issue_title}\n"
+                f"Описание: {issue_body}\n"
+                f"Комментарии:\n" + "\n".join(comments) + "\n\n" +
+                "Содержимое файлов репозитория:\n" + "\n\n".join(files_context)
+        )
+
+        files_to_update = await run_coder_agent(context, allowed_files=repo_files)
         logger.info("Files to update: %s", list(files_to_update.keys()))
 
         branch_name = f"issue-{issue_number}-fix"

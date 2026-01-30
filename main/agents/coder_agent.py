@@ -1,47 +1,31 @@
+# main/agents/coder_agent.py
 import openai
-from openai.types.chat import (
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
+from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
+from main.config import OPENROUTER_API_KEY, MODEL, USE_YANDEX_GPT, YANDEX_CLOUD_API_KEY, YANDEX_CLOUD_FOLDER, YANDEX_CLOUD_MODEL
 
-from main.config import (
-    OPENROUTER_API_KEY, MODEL,
-    USE_YANDEX_GPT, YANDEX_CLOUD_API_KEY, YANDEX_CLOUD_FOLDER, YANDEX_CLOUD_MODEL
-)
-
-SYSTEM_PROMPT = """Ты — Coder Agent. Твоя задача — исправлять баги и добавлять функционал по issue.
-
+SYSTEM_PROMPT = """
+Ты — Coder Agent. Твоя задача — исправлять баги и добавлять функционал по issue.
 Правила формата ответа:
-1. Каждый изменяемый или создаваемый файл выводи в таком формате:
+1. Каждый изменяемый или создаваемый файл выводи в формате:
 === путь/к/файлу ===
 <код файла>
 2. Никаких пояснений, комментариев или текста вне блоков файлов — только файлы.
 3. Сохраняй отступы и синтаксис файлов без изменений.
 4. Не объединяй несколько файлов в один блок.
-5. Если файл не нужно менять — не упоминай его.
-6. Код должен быть корректным для соответствующего языка (Python, JS, etc.).
-7. Не добавляй никаких других инструкций, только файлы в указанном формате.
-
-Пример корректного ответа:
-=== app/main.py ===
-print("Hello world")
-
-=== utils/helpers.py ===
-def add(a, b):
-    return a + b
+5. Если файл уже существует — не меняй имя класса и не создавай новый файл без крайней необходимости.
+6. Если файл не нужно менять — не упоминай его.
+7. Код должен быть корректным для соответствующего языка (Python, JS, etc.).
+8. Если есть список файлов репозитория, используй его, чтобы редактировать только существующие файлы.
 """
 
-
 class LLMAgent:
-    """
-    Универсальный агент для OpenRouter и YandexGPT через OpenAI SDK.
-    """
+    """Универсальный агент для OpenRouter и YandexGPT через OpenAI SDK."""
     def __init__(self):
         if USE_YANDEX_GPT:
             self.client = openai.OpenAI(
                 api_key=YANDEX_CLOUD_API_KEY,
                 base_url="https://rest-assistant.api.cloud.yandex.net/v1",
-                project=YANDEX_CLOUD_FOLDER
+                project=YANDEX_CLOUD_FOLDER,
             )
             self.model_id = f"gpt://{YANDEX_CLOUD_FOLDER}/{YANDEX_CLOUD_MODEL}"
             self.is_yandex = True
@@ -72,14 +56,8 @@ class LLMAgent:
             )
             return resp.choices[0].message.content
 
-
 def parse_agent_diff(agent_response: str) -> dict[str, str]:
-    """
-    Преобразует ответ агента в словарь {путь_файла: новый_код}.
-    Формат ответа:
-    === filename ===
-    <код файла>
-    """
+    """Преобразует ответ агента в словарь {путь_файла: новый_код}."""
     files = {}
     current_file = None
     buffer = []
@@ -93,10 +71,10 @@ def parse_agent_diff(agent_response: str) -> dict[str, str]:
             buffer = []
         else:
             buffer.append(line)
+
     if current_file:
         files[current_file] = "\n".join(buffer).strip()
     return files
-
 
 # Singleton агента
 _agent: LLMAgent | None = None
@@ -107,13 +85,9 @@ def get_coder_agent() -> LLMAgent:
         _agent = LLMAgent()
     return _agent
 
-
-async def run_coder_agent(issue_title: str, issue_body: str, comments: list[str]) -> dict[str, str]:
-    """
-    Возвращает словарь {файл: новый код}.
-    """
+async def run_coder_agent(context: str, allowed_files: list[str]) -> dict[str, str]:
+    """Запускает агента на контексте. Разрешены только файлы из allowed_files."""
     agent = get_coder_agent()
-    context = f"Issue: {issue_title}\nОписание: {issue_body}\nКомментарии:\n" + "\n".join(comments)
     response = await agent.run(context)
     files_to_update = parse_agent_diff(response)
-    return files_to_update
+    return {f: c for f, c in files_to_update.items() if f in allowed_files}
