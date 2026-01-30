@@ -238,29 +238,25 @@ class GitHubAppClient:
             raise
 
     def get_file_content(self, repo_full_name: str, path: str, ref: str = "main"):
-        logger.debug(
-            "Reading file repo=%s ref=%s path=%s",
-            repo_full_name,
-            ref,
-            path,
-        )
+        """
+        Возвращает содержимое текстового файла. Если файл бинарный, возвращает None.
+        """
+        logger.debug("Reading file repo=%s ref=%s path=%s", repo_full_name, ref, path)
         try:
             repo = self.get_repo(repo_full_name)
             f = repo.get_contents(path, ref=ref)
-            logger.debug("File read successfully path=%s", path)
-            return f.decoded_content.decode()
+
+            try:
+                return f.decoded_content.decode("utf-8")
+            except UnicodeDecodeError:
+                logger.info("Skipping binary file %s", path)
+                return None
         except Exception:
             logger.exception("Failed to read file path=%s", path)
-            raise
+            return None
 
     def list_files(self, repo_full_name: str, path: str = "", ref: str = "main"):
-        logger.info(
-            "Listing files repo=%s ref=%s path=%s",
-            repo_full_name,
-            ref,
-            path,
-        )
-
+        logger.info("Listing files repo=%s ref=%s path=%s", repo_full_name, ref, path)
         try:
             repo = self.get_repo(repo_full_name)
             result = []
@@ -277,7 +273,7 @@ class GitHubAppClient:
             return result
         except Exception:
             logger.exception("Failed to list files repo=%s", repo_full_name)
-            raise
+            return []
 
     def create_branch(self, repo_full_name: str, branch_name: str, base_branch: str = "main"):
         """
