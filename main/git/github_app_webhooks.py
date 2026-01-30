@@ -13,16 +13,19 @@ router = APIRouter()
 
 
 def verify_signature(payload: bytes, signature: str) -> bool:
+    """Проверка подписи GitHub webhook"""
     mac = hmac.new(WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
     return hmac.compare_digest(f"sha256={mac.hexdigest()}", signature)
 
 
 async def get_issue_comments(client: GitHubAppClient, repo_full_name: str, issue_number: int) -> List[str]:
+    """Получение комментариев к issue"""
     comments = client.get_issue(repo_full_name, issue_number).get_comments()
     return [c.body for c in comments]
 
 
 async def get_pr_diff(client: GitHubAppClient, repo_full_name: str, pr_number: int) -> str:
+    """Получение diff PR в формате текста"""
     pr = client.get_pull_request(repo_full_name, pr_number)
     import requests
     headers = {"Authorization": f"token {client.token}", "Accept": "application/vnd.github.v3.diff"}
@@ -31,13 +34,31 @@ async def get_pr_diff(client: GitHubAppClient, repo_full_name: str, pr_number: i
 
 
 async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number: int) -> str:
+    """
+    Получение статуса CI для PR.
+    Возможные значения:
+      - "success" — все проверки прошли
+      - "failure" — хотя бы одна проверка провалена
+      - "pending" — проверки ещё выполняются
+      - "no_ci" — CI не запущен или отсутствует
+    """
     pr = client.get_pull_request(repo_full_name, pr_number)
-    statuses = pr.get_combined_status()
-    if statuses.total_count == 0:
-        return "pending"
-    if any(s.state == "failure" for s in statuses.statuses):
+    commits = pr.get_commits()
+    if commits.totalCount == 0:
+        return "no_ci"
+
+    latest_commit = commits[-1]
+
+    try:
+        combined_status = latest_commit.get_combined_status()
+    except AttributeError:
+        return "no_ci"
+
+    if combined_status.total_count == 0:
+        return "no_ci"
+    if any(s.state == "failure" for s in combined_status.statuses):
         return "failure"
-    if all(s.state == "success" for s in statuses.statuses):
+    if all(s.state == "success" for s in combined_status.statuses):
         return "success"
     return "pending"
 
@@ -66,7 +87,7 @@ async def github_webhook(
 
     client = GitHubAppClient(installation_id)
 
-    # Coder Agent
+    # --- Coder Agent: обработка новых issue ---
     if x_github_event == "issues" and payload.get("action") == "opened":
         issue_number = payload["issue"]["number"]
         issue_title = payload["issue"]["title"]
@@ -86,6 +107,7 @@ async def github_webhook(
             f"# Изменение по issue #{issue_number}\n\n{agent_response}",
             f"Issue #{issue_number} fix via Coder Agent"
         )
+
         client.create_pull_request(
             repo_full_name,
             f"Fix for issue #{issue_number}",
@@ -95,7 +117,7 @@ async def github_webhook(
         )
         return {"status": "coder agent completed"}
 
-    # Reviewer Agent
+    # --- Reviewer Agent: обработка новых PR ---
     elif x_github_event == "pull_request" and payload.get("action") == "opened":
         pr_number = payload["pull_request"]["number"]
         pr_title = payload["pull_request"]["title"]
@@ -104,10 +126,13 @@ async def github_webhook(
         diff_text = await get_pr_diff(client, repo_full_name, pr_number)
         ci_status = await get_ci_status(client, repo_full_name, pr_number)
 
-        review_comment = await run_reviewer_agent(pr_title, pr_body, diff_text, ci_status)
-        logger.info("Reviewer Agent response: %s", review_comment)
+        if ci_status == "no_ci":
+            # Если CI тестов нет, пишем предупреждающий комментарий
+            client.add_pr_comment(repo_full_name, pr_number, "⚠️ CI тестов не было для этого PR.")
+        else:
+            review_comment = await run_reviewer_agent(pr_title, pr_body, diff_text, ci_status)
+            client.add_pr_comment(repo_full_name, pr_number, review_comment)
 
-        client.add_pr_comment(repo_full_name, pr_number, review_comment)
         return {"status": "reviewer agent completed"}
 
     logger.info("Unhandled event type: %s", x_github_event)
