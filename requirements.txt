@@ -4,3 +4,4 @@ PyGithub
 PyJWT
 requests
 agno
+openai
