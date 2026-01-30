@@ -34,33 +34,26 @@ async def get_pr_diff(client: GitHubAppClient, repo_full_name: str, pr_number: i
 
 
 async def get_ci_status(client: GitHubAppClient, repo_full_name: str, pr_number: int) -> str:
-    """
-    Получение статуса CI для PR.
-    Возможные значения:
-      - "success" — все проверки прошли
-      - "failure" — хотя бы одна проверка провалена
-      - "pending" — проверки ещё выполняются
-      - "no_ci" — CI не запущен или отсутствует
-    """
     pr = client.get_pull_request(repo_full_name, pr_number)
     commits = pr.get_commits()
-    if commits.totalCount == 0:
+
+    latest_commit = None
+    for commit in commits:
+        latest_commit = commit
+    if latest_commit is None:
         return "no_ci"
 
-    latest_commit = commits[-1]
-
-    # Получаем статус коммита
     statuses = latest_commit.get_statuses()
     if statuses.totalCount == 0:
         return "no_ci"
 
-    states = [s.state for s in statuses]  # список "success", "failure", "pending"
-
+    states = [s.state for s in statuses]
     if "failure" in states:
         return "failure"
     if all(s == "success" for s in states):
         return "success"
     return "pending"
+
 
 
 @router.post("/webhook")
@@ -152,10 +145,10 @@ async def github_webhook(
         ci_status = await get_ci_status(client, repo_full_name, pr_number)
 
         if ci_status == "no_ci":
-            # Если CI тестов нет, пишем предупреждающий комментарий
             client.add_pr_comment(repo_full_name, pr_number, "⚠️ CI тестов не было для этого PR.")
         else:
-            review_comment = await run_reviewer_agent(pr_title, pr_body, diff_text, ci_status)
+            context = f"PR: {pr_title}\nОписание: {pr_body}\nDiff:\n{diff_text}\nCI: {ci_status}"
+            review_comment = await run_reviewer_agent(context)
             client.add_pr_comment(repo_full_name, pr_number, review_comment)
 
         return {"status": "reviewer agent completed"}
