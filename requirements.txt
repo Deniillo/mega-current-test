@@ -3,3 +3,4 @@ uvicorn[standard]
 PyGithub
 PyJWT
 requests
+agno
