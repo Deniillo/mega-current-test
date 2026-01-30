@@ -50,11 +50,10 @@ class LLMAgent:
                     ChatCompletionUserMessageParam(content=prompt, role="user")
                 ],
                 temperature=0.3,
-                max_tokens=1000
+                max_tokens=5000
             )
             return resp.choices[0].message.content
 
-# Singleton агента
 _agent: LLMAgent | None = None
 
 def get_reviewer_agent() -> LLMAgent:

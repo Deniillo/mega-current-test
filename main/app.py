@@ -3,9 +3,6 @@ from main.git.github_app_webhooks import router as github_webhooks_router
 from main.logging import setup_logging
 
 setup_logging()
-
-# Главный объект FastAPI
 app = FastAPI(title="GitHub App Client API")
 
-# Подключаем ручки из github_webhooks
 app.include_router(github_webhooks_router)

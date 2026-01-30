@@ -239,7 +239,7 @@ class GitHubAppClient:
 
     def get_file_content(self, repo_full_name: str, path: str, ref: str = "main"):
         """
-        Возвращает содержимое текстового файла. Если файл бинарный, возвращает None.
+        Возвращает содержимое текстового файла. Если файл бинарный, возвращает None
         """
         logger.debug("Reading file repo=%s ref=%s path=%s", repo_full_name, ref, path)
         try:
@@ -277,7 +277,7 @@ class GitHubAppClient:
 
     def create_branch(self, repo_full_name: str, branch_name: str, base_branch: str = "main"):
         """
-        Создает новую ветку branch_name от base_branch.
+        Создает новую ветку branch_name от base_branch
         """
         logger.info(
             "Creating branch repo=%s branch_name=%s base_branch=%s",
@@ -288,9 +288,9 @@ class GitHubAppClient:
 
         try:
             repo = self.get_repo(repo_full_name)
-            # Получаем объект base ветки
+
             base_ref = repo.get_branch(base_branch)
-            # Создаем новую ветку с тем же SHA, что у base
+
             repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base_ref.commit.sha)
             logger.info(
                 "Branch created successfully branch_name=%s from base_branch=%s",
@@ -307,8 +307,7 @@ class GitHubAppClient:
 
     def get_pr_number_from_url(self, pr_url: str) -> int:
         """
-        Получает номер PR из полного API URL.
-        Пример URL: https://api.github.com/repos/owner/repo/pulls/12
+        Получает номер PR из полного API URL
         """
         try:
             pr_number = int(pr_url.rstrip("/").split("/")[-1])

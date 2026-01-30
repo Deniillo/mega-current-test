@@ -1,4 +1,3 @@
-# main/agents/coder_agent.py
 import openai
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 from main.config import OPENROUTER_API_KEY, MODEL, USE_YANDEX_GPT, YANDEX_CLOUD_API_KEY, YANDEX_CLOUD_FOLDER, YANDEX_CLOUD_MODEL
@@ -23,7 +22,6 @@ SYSTEM_PROMPT = """
 """
 
 class LLMAgent:
-    """Универсальный агент для OpenRouter и YandexGPT через OpenAI SDK."""
     def __init__(self):
         if USE_YANDEX_GPT:
             self.client = openai.OpenAI(
@@ -80,7 +78,6 @@ def parse_agent_diff(agent_response: str) -> dict[str, str]:
         files[current_file] = "\n".join(buffer).strip()
     return files
 
-# Singleton агента
 _agent: LLMAgent | None = None
 
 def get_coder_agent() -> LLMAgent:

@@ -1,5 +1,4 @@
 .env
-/TZ.md
 .venv
 /itmo-mega-school-alenin.private-key.pem
 docker/private-key.pem
