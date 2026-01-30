@@ -16,6 +16,10 @@ SYSTEM_PROMPT = """
 6. Если файл не нужно менять — не упоминай его.
 7. Код должен быть корректным для соответствующего языка (Python, JS, etc.).
 8. Если есть список файлов репозитория, используй его, чтобы редактировать только существующие файлы.
+
+ВАЖНО: Если ты не понял, что нужно исправить. Напиши следующий формат ответа
+=== README.md ===
+Я не понял задачу или переполнился контекст
 """
 
 class LLMAgent:
@@ -41,7 +45,7 @@ class LLMAgent:
                 instructions=SYSTEM_PROMPT,
                 input=prompt,
                 temperature=0.3,
-                max_output_tokens=500
+                max_output_tokens=10000
             )
             return resp.output_text
         else:
