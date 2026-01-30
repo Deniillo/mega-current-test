@@ -1,24 +1,19 @@
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 import hmac
 import hashlib
 
 from main.git.github_client import GitHubAppClient
-
 from main.config import WEBHOOK_SECRET
 
-app = FastAPI(title="GitHub App Client API")
+router = APIRouter()
 
-# -----------------------------
 # Проверка подписи вебхука
-# -----------------------------
-def verify_signature(payload: bytes, signature: str):
+def verify_signature(payload: bytes, signature: str) -> bool:
     mac = hmac.new(WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
-    return hmac.compare_digest("sha256=" + mac.hexdigest(), signature)
+    return hmac.compare_digest(f"sha256={mac.hexdigest()}", signature)
 
-# -----------------------------
 # Вебхук endpoint
-# -----------------------------
-@app.post("/webhook")
+@router.post("/webhook")
 async def github_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(None),
@@ -44,10 +39,8 @@ async def github_webhook(
 
     return {"status": "ok"}
 
-# -----------------------------
 # Ручка для теста комментария на issue
-# -----------------------------
-@app.post("/test_issue/")
+@router.post("/test_issue/")
 async def test_issue(
     installation_id: int,
     repo_full_name: str,
