@@ -14,11 +14,9 @@ from main.git.github_client import GitHubAppClient
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ----------------- STATE -----------------
 PR_ITERATIONS = defaultdict(int)
 MAX_ITERATIONS = 5
 
-# ----------------- UTILS -----------------
 def verify_signature(payload: bytes, signature: str) -> bool:
     """Проверка подписи GitHub webhook"""
     mac = hmac.new(WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
