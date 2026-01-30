@@ -22,7 +22,6 @@ def get_reviewer_agent() -> Agent:
     if _agent is None:
         _agent = Agent(
             model=OpenRouter(id=MODEL, api_key=OPENROUTER_API_KEY),
-            tools=[FileTools(), ShellTools()],
             instructions=SYSTEM_PROMPT,
             markdown=True,
         )
