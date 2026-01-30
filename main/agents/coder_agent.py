@@ -6,16 +6,20 @@ from main.config import (
 )
 import openai
 
-SYSTEM_PROMPT = """Ты — Coder Agent. Твоя задача: решать задачи из GitHub issues.
+SYSTEM_PROMPT = """Ты — Coder Agent. Твоя задача — исправлять баги и добавлять функционал по issue.
 
-Правила:
+Инструкции:
 1. Берем issue title, описание и комментарии.
-2. Вносим изменения в проект.
-3. Используем git: создаем новую ветку, вносим изменения и пушим.
-4. Создаем pull request с описанием изменений.
-5. Объясняем, что сделано.
+2. Исправляем код проекта.
+3. Отвечаем строго в формате:
 
-Отвечаем на русском языке.
+=== путь/к/файлу ===
+<новый код файла>
+
+=== другой_файл.py ===
+<новый код другого файла>
+
+Никаких описаний, комментариев, планов, README.md или Markdown. Только код файлов.
 """
 
 _agent: Agent | None = None
@@ -42,6 +46,7 @@ class YandexGPT(OpenRouter):
             content = resp.output_text
         return Resp()
 
+
 def get_coder_agent() -> Agent:
     global _agent
     if _agent is None:
@@ -49,18 +54,48 @@ def get_coder_agent() -> Agent:
             _agent = Agent(
                 model=YandexGPT(YANDEX_CLOUD_FOLDER, YANDEX_CLOUD_API_KEY, YANDEX_CLOUD_MODEL),
                 instructions=SYSTEM_PROMPT,
-                markdown=True
+                markdown=False
             )
         else:
             _agent = Agent(
                 model=OpenRouter(id=MODEL, api_key=OPENROUTER_API_KEY),
                 instructions=SYSTEM_PROMPT,
-                markdown=True,
+                markdown=False
             )
     return _agent
 
-async def run_coder_agent(issue_title: str, issue_body: str, comments: list[str]) -> str:
+
+def parse_agent_diff(agent_response: str) -> dict[str, str]:
+    """
+    Преобразует ответ агента в словарь {путь_файла: новый_код}.
+    Формат ответа:
+    === filename ===
+    <код файла>
+    """
+    files = {}
+    current_file = None
+    buffer = []
+
+    for line in agent_response.splitlines():
+        line = line.rstrip()
+        if line.startswith("===") and line.endswith("==="):
+            if current_file:
+                files[current_file] = "\n".join(buffer).strip()
+            current_file = line.strip("= ").strip()
+            buffer = []
+        else:
+            buffer.append(line)
+    if current_file:
+        files[current_file] = "\n".join(buffer).strip()
+    return files
+
+
+async def run_coder_agent(issue_title: str, issue_body: str, comments: list[str]) -> dict[str, str]:
+    """
+    Возвращает словарь {файл: новый код}.
+    """
     agent = get_coder_agent()
     context = f"Issue: {issue_title}\nОписание: {issue_body}\nКомментарии:\n" + "\n".join(comments)
     response = agent.run(context)
-    return response.content
+    files_to_update = parse_agent_diff(response.content)
+    return files_to_update

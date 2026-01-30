@@ -93,28 +93,31 @@ async def github_webhook(
         issue_title = payload["issue"]["title"]
         issue_body = payload["issue"].get("body", "")
         comments = await get_issue_comments(client, repo_full_name, issue_number)
-        agent_response = await run_coder_agent(issue_title, issue_body, comments)
-        logger.info("Coder Agent response: %s", agent_response)
+
+        # Получаем словарь {файл: новый код}
+        files_to_update = await run_coder_agent(issue_title, issue_body, comments)
+        logger.info("Files to update: %s", list(files_to_update.keys()))
 
         branch_name = f"issue-{issue_number}-fix"
-
         client.create_branch(repo_full_name, branch_name)
 
-        client.create_or_update_file(
-            repo_full_name,
-            branch_name,
-            "README.md",
-            f"# Изменение по issue #{issue_number}\n\n{agent_response}",
-            f"Issue #{issue_number} fix via Coder Agent"
-        )
+        for path, content in files_to_update.items():
+            client.create_or_update_file(
+                repo_full_name,
+                branch_name,
+                path,
+                content,
+                f"Issue #{issue_number} fix via Coder Agent"
+            )
 
         client.create_pull_request(
             repo_full_name,
             f"Fix for issue #{issue_number}",
             branch_name,
             "main",
-            body=agent_response
+            body=f"Issue #{issue_number} fix via Coder Agent"
         )
+
         return {"status": "coder agent completed"}
 
     # --- Reviewer Agent: обработка новых PR ---
