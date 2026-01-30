@@ -9,6 +9,6 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ./private_key.pem:/docker/private_key.pem
+      - ./private-key.pem:/docker/private-key.pem
     environment:
-      - GITHUB_PRIVATE_KEY_PATH=/docker/private_key.pem
+      - GITHUB_PRIVATE_KEY_PATH=/docker/private-key.pem
