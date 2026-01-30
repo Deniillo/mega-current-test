@@ -11,4 +11,4 @@ services:
     volumes:
       - ./private_key.pem:/docker/private_key.pem
     environment:
-      - GITHUB_PRIVATE_KEY_PATH=/docker/private-key.pem
+      - GITHUB_PRIVATE_KEY_PATH=/docker/private_key.pem
